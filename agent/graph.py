@@ -107,7 +107,8 @@ def reporter(state):
     payload = build_payload(state)
     explanation, provider = generate_explanation("Write a concise incident report using only supplied evidence. Do not make deployment decisions.", json_text(payload), fallback_report(state))
     payload["natural_language_report"] = explanation; payload["llm_provider"] = provider
-    if state["route"] == "auto-deploy": state["report"] = post_slack_report(payload)
+    if state["route"] == "auto-deploy":
+        state["report"] = {**post_slack_report(payload), "natural_language_report": explanation, "llm_provider": provider}
     else:
         state["report"] = {**state.get("report", {}), "natural_language_report": explanation, "llm_provider": provider}
     return _record(state, "reporter", payload, state["report"], "post_slack_report" if state["route"] == "auto-deploy" else None)
