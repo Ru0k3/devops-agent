@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path
 import sys
 import requests
@@ -63,8 +64,17 @@ def retrieve(query: str, k: int = 2) -> list[dict[str, str]]:
         client = _client()
         collection = client.get_or_create_collection(COLLECTION, metadata={"hnsw:space": "cosine"})
         if collection.count() < len(POSTMORTEMS): ingest()
-        result = collection.query(query_embeddings=[_embedding(query)], n_results=k)
-        return [{"id": i, "text": t} for i, t in zip(result["ids"][0], result["documents"][0])]
+        result = collection.query(query_embeddings=[_embedding(query)], n_results=len(POSTMORTEMS))
+        candidates = [{"id": i, "text": t} for i, t in zip(result["ids"][0], result["documents"][0])]
+        # Keep vector search as the primary retriever, then stabilize seeded demo
+        # citations with exact evidence terms (exception names, paths, and service names).
+        query_terms = set(re.findall(r"[a-z0-9_/.]+", query.lower()))
+        for rank, item in enumerate(candidates):
+            doc_terms = set(re.findall(r"[a-z0-9_/.]+", item["text"].lower()))
+            item["_lexical"] = len(query_terms & doc_terms)
+            item["_rank"] = rank
+        candidates.sort(key=lambda item: (-item["_lexical"], item["_rank"]))
+        return [{"id": item["id"], "text": item["text"]} for item in candidates[:k]]
     except Exception:
         # Chroma is required in requirements; this fallback only keeps imports usable before install.
         return [{"id": d["id"], "text": d["text"]} for d in POSTMORTEMS[:k]]
