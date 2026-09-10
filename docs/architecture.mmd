@@ -1,0 +1,13 @@
+flowchart TD
+    START([Alert]) --> intake[Alert Intake Agent]
+    intake --> logs[Log Analyzer Agent]
+    logs --> commits[Commit Correlator Agent]
+    commits --> rag[Grounded Diagnosis / Chroma RAG]
+    rag --> patch[Patch Writer + Sandbox Tests]
+    patch --> critic[Safety Critic / Risk Score]
+    critic --> router{Deterministic Router}
+    router -->|confidence >= 0.75, tests green, no flags| deploy[Deploy to Isolated Sandbox]
+    router -->|otherwise| escalate[Escalate to On-call]
+    deploy --> report[Reporter / Slack]
+    escalate --> report
+    report --> trace[Local JSON + Optional Langfuse]
