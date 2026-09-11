@@ -6,6 +6,26 @@ This repository is a safety-gated incident-response demo with a real **LangGraph
 
 > **Safety invariant:** the deployer writes only to `logs/sandbox_deployments.jsonl` and returns `production_touched: false`. Routing is deterministic Python based on numeric safety scoring. Neither NVIDIA NIM nor any other language model can choose auto-deploy versus escalation.
 
+## Live demo video
+
+Watch the complete SentinelOps demonstration here:
+
+**[▶ Watch `devops.mp4`](devops.mp4)**
+
+The recording shows both sides of the safety-gated workflow:
+
+1. `payment-regression` — evidence-grounded diagnosis, passing sandbox tests, a clear blast radius, and deployment to the isolated sandbox.
+2. `auth-risky` — a sensitive authentication-path change with failed tests, deterministic deployment blocking, and escalation to on-call.
+
+The video is committed at the repository root as [`devops.mp4`](devops.mp4). To download or play it locally:
+
+```bash
+git clone https://github.com/Ru0k3/devops-agent.git
+cd devops-agent
+```
+
+Then open `devops.mp4` with any standard video player. The live dashboard can be run separately using the instructions in [Setup and run](#setup-and-run).
+
 ## Architecture
 
 The compiled graph is:
