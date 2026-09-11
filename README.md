@@ -8,14 +8,11 @@ This repository is a safety-gated incident-response demo with a real **LangGraph
 
 ## Live demo video
 
-The complete SentinelOps demonstration is playable directly below:
+The complete SentinelOps demonstration is playable here:
 
-<video controls="controls" width="100%" preload="metadata">
-  <source src="https://github.com/Ru0k3/devops-agent/raw/refs/heads/main/devops.mp4" type="video/mp4">
-  Your browser does not support embedded video. [Download `devops.mp4`](devops.mp4).
-</video>
+**[▶ Open the full playable demo](https://ru0k3.github.io/devops-agent/demo.html)**
 
-Fallback: **[Download or open `devops.mp4`](devops.mp4)**
+The player is hosted as a GitHub Pages HTML page because GitHub README pages do not reliably stream repository MP4 binaries inline. The source video remains available as [`devops.mp4`](devops.mp4).
 
 The recording shows both sides of the safety-gated workflow:
 
