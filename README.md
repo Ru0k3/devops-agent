@@ -1,166 +1,263 @@
-# Autonomous DevOps Incident-Response Agent
+# SentinelOps
 
-This repository is a safety-gated incident-response demo with a real **LangGraph `StateGraph`**, a real **FastMCP server**, NVIDIA NIM reasoning with an offline fallback, persistent **Chroma** retrieval, and optional **Langfuse** traces. The agent processes seven seeded incidents and never deploys to production.
+## A safety-gated DevOps incident-response agent
 
-**Chosen track:** Track 03 — **Trustworthy, Responsible & Secure AI**. The project focuses on confidence scoring, guardrails, escalation, audit logs, prompt-injection hygiene, and resilience under review.
+When a production service breaks, an engineer usually has to jump between alerts, logs, recent commits, old postmortems, tests, and deployment checks. SentinelOps brings those steps together in one workflow.
 
-> **Safety invariant:** the deployer writes only to `logs/sandbox_deployments.jsonl` and returns `production_touched: false`. Routing is deterministic Python based on numeric safety scoring. Neither NVIDIA NIM nor any other language model can choose auto-deploy versus escalation.
+The idea is simple: **let the agent investigate and prepare a fix, but never let it deploy blindly**.
 
-## Live demo video
+SentinelOps correlates the incident with logs and recent code changes, searches previous incidents for useful evidence, prepares a candidate patch, runs tests in a sandbox, and then makes one of two decisions:
 
-The complete SentinelOps demonstration is playable here:
+- **Auto-deploy to an isolated sandbox** when the change is well-supported and low risk.
+- **Escalate to a human** when tests fail, confidence is low, or the change touches a sensitive area.
 
-**[▶ Open the full playable demo](https://ru0k3.github.io/devops-agent/demo.html)**
+This project was built for the **Trustworthy, Responsible & Secure AI** track. It is a reproducible local demonstration and does not connect to or modify production systems.
 
-The player is hosted as a GitHub Pages HTML page because GitHub README pages do not reliably stream repository MP4 binaries inline. The source video remains available as [`devops.mp4`](devops.mp4).
+> **Safety invariant:** the demo deployer writes only to `logs/sandbox_deployments.jsonl` and reports `production_touched: false`. The final deployment decision is made by deterministic Python rules, not by the language model.
 
-The recording shows both sides of the safety-gated workflow:
+## Live demo
 
-1. `payment-regression` — evidence-grounded diagnosis, passing sandbox tests, a clear blast radius, and deployment to the isolated sandbox.
-2. `auth-risky` — a sensitive authentication-path change with failed tests, deterministic deployment blocking, and escalation to on-call.
+The complete demo shows both sides of the system:
 
-The video is committed at the repository root as [`devops.mp4`](devops.mp4). To download or play it locally:
+**[Open the playable SentinelOps demo](https://ru0k3.github.io/devops-agent/demo.html)**
+
+The recording covers:
+
+1. **Payment regression:** the agent finds a missing defensive check, passes the sandbox tests, and deploys the patch to the isolated sandbox.
+2. **Authentication regression:** the agent detects a sensitive authentication change, blocks deployment, and escalates the incident to on-call.
+
+The source video is also available in the repository as [`devops.mp4`](devops.mp4).
+
+## How the workflow works
+
+```text
+Alert
+  ↓
+Fetch logs
+  ↓
+Find recent commits and the relevant diff
+  ↓
+Retrieve similar postmortems from Chroma
+  ↓
+Write a grounded diagnosis
+  ↓
+Prepare a candidate patch
+  ↓
+Run sandbox tests
+  ↓
+Calculate confidence and blast radius
+  ↓
+Auto-deploy to the sandbox or escalate to a human
+```
+
+The implementation uses a real LangGraph `StateGraph` with these nodes:
+
+```text
+alert_intake → log_analyzer → commit_correlator → grounded_diagnosis
+             → patch_writer → safety_critic → router
+             → deployer → reporter
+                              ↘ escalate_to_oncall → reporter
+```
+
+The router uses a LangGraph conditional edge. Its policy is deliberately straightforward:
+
+```text
+confidence >= 0.75
+AND tests pass
+AND no risk flag
+```
+
+If any part of that rule fails, the incident is escalated.
+
+## The technology stack
+
+Each component has a specific role in the project.
+
+| Technology | How it is used |
+|---|---|
+| **LangGraph** | Runs the incident-response state machine and conditional router. |
+| **LangChain** | Builds the structured prompts used for diagnosis and reporting. |
+| **FastMCP** | Provides the controlled tool boundary for logs, commits, tests, deployment, and escalation. |
+| **Chroma** | Stores and retrieves the synthetic incident postmortems used for grounding. |
+| **NVIDIA NIM** | Optionally generates the natural-language diagnosis and report. |
+| **Langfuse** | Optionally records traces for graph nodes and tool calls. |
+| **Slack webhooks** | Optionally sends the final report or escalation to a Slack channel. |
+
+If external services are unavailable, the project still runs locally. It uses deterministic fallbacks for reports, local JSON traces for observability, and seeded local adapters for incidents and operational tools.
+
+## The two demo paths
+
+### Safe path: `payment-regression`
+
+The payment service reports:
+
+```text
+NullPointerException: customer.payment_method is None
+```
+
+The agent connects the failure to commit `abc1234`, retrieves relevant postmortems, prepares a fix, and runs the sandbox tests. The expected result is:
+
+```text
+AUTO-DEPLOY
+Confidence: 94%
+Tests: PASS
+Blast radius: CLEAR
+Deployment: isolated sandbox
+production_touched: false
+```
+
+This demonstrates **controlled autonomy**.
+
+### Escalation path: `auth-risky`
+
+The authentication service reports a token-validation failure. The related change touches `auth/token.py`:
+
+```diff
+- issuer = claims.get('iss')
++ issuer = claims['iss']
+```
+
+Because this is a sensitive authentication path and the seeded tests fail, the agent blocks deployment:
+
+```text
+ESCALATE
+Confidence: 40%
+Tests: FAIL
+Blast radius: FLAGGED
+Deployment: BLOCKED
+```
+
+This demonstrates **responsible refusal**. The agent is still useful because it provides the diagnosis, commit, diff, citations, and test results to the human reviewer.
+
+## Grounding and citations
+
+The repository contains eight synthetic postmortems. Chroma stores them in a persistent collection named `incident-postmortems`.
+
+For each incident, the agent retrieves related documents and includes their IDs in the diagnosis. For example, the payment path cites:
+
+```text
+pm-001 · pm-002 · abc1234
+```
+
+The citations connect the current failure to both historical evidence and the suspected commit. This makes the demo explainable and repeatable instead of relying only on the model's general knowledge.
+
+## Observability
+
+Every graph step records a state transition and, where applicable, the tool that was called. Local traces are written under `logs/`.
+
+If Langfuse credentials are configured, the same execution can also be sent to Langfuse. Without those credentials, the local trace remains available, so the demo does not depend on a cloud account.
+
+## Quick start
+
+The project can be run without API keys.
 
 ```bash
 git clone https://github.com/Ru0k3/devops-agent.git
 cd devops-agent
-```
 
-Then open `devops.mp4` with any standard video player. The live dashboard can be run separately using the instructions in [Setup and run](#setup-and-run).
-
-## Architecture
-
-The compiled graph is:
-
-```text
-START -> alert_intake -> log_analyzer -> commit_correlator -> grounded_diagnosis
-      -> patch_writer -> safety_critic -> router
-      -> deployer -> reporter -> END
-                       \\-\> escalate_to_oncall -> reporter -> END
-```
-
-The same graph is exportable from LangGraph with `compiled.get_graph().draw_mermaid()`:
-
-```mermaid
-flowchart TD
-    START --> alert_intake --> log_analyzer --> commit_correlator --> grounded_diagnosis
-    grounded_diagnosis --> patch_writer --> safety_critic --> router
-    router -. auto-deploy .-> deployer --> reporter --> END
-    router -. escalate .-> escalate_to_oncall --> reporter
-```
-
-The router uses a real LangGraph conditional edge (`add_conditional_edges`). Its policy is explicit: confidence must be at least `0.75`, tests must pass, and the data-driven blast-radius flags must be empty. `agent/risk.py` computes changed lines and sensitive paths from the actual diff and path. It does not branch on service names.
-
-| Capability | Real implementation | Offline behavior |
-|---|---|---|
-| Orchestration | `langgraph.graph.StateGraph` | Installation is required to run |
-| MCP tools | `tools/mcp_server.py` using FastMCP | Seeded local backends remain deterministic |
-| Reasoning | NVIDIA NIM OpenAI-compatible endpoint | Deterministic evidence-based templates |
-| Grounding | Persistent Chroma collection at `rag/chroma_db/` | Import-time fallback before dependencies install |
-| Observability | Langfuse spans plus local JSON traces | Local traces when credentials are absent |
-| Notifications | Slack webhook | Local report payload |
-
-## Seven-incident regression set
-
-| Incident | Expected route | Independent reason |
-|---|---|---|
-| `payment-regression` | auto-deploy | Small diff, non-sensitive path, tests pass |
-| `cache-invalidation-bug` | auto-deploy | Small diff, non-sensitive path, tests pass |
-| `inventory-sync-glitch` | auto-deploy | Small diff, non-sensitive path, tests pass |
-| `auth-risky` | escalate | Sensitive auth path and failed tests |
-| `billing-calc-error` | escalate | Sensitive ledger path despite passing tests |
-| `search-index-corruption` | escalate | More than ten changed lines despite passing tests |
-| `notification-delivery-failure` | escalate | Failed tests alone on a safe path |
-
-## Setup and run
-
-```bash
-cd devops-agent
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
+
 cp .env.example .env
-
-# Ingest the eight synthetic postmortems into persistent Chroma.
-PYTHONPATH=. python3 rag/ingest.py
-
-# Run one branch or the full seven-case evaluation.
-PYTHONPATH=. python3 run_demo.py --incident payment-regression
-PYTHONPATH=. python3 run_demo.py --incident auth-risky
-PYTHONPATH=. python3 eval/run_eval.py
-python3 -m pytest -q
+python3 rag/ingest.py
 ```
 
-### API keys
+Run the command-line demo:
 
-**No API keys are required for the local demo.** Leave `.env` empty after copying `.env.example`; the agent uses seeded logs/commits, local Chroma, deterministic report templates, local JSON traces, and a local Slack-report fallback. The dashboard and evaluation work without external accounts.
+```bash
+PYTHONPATH=. python3 run_demo.py --incident payment-regression
+PYTHONPATH=. python3 run_demo.py --incident auth-risky
+```
 
-The following keys are optional:
+Run the dashboard:
 
-| Variable | Needed for | Required? |
-|---|---|---|
-| `NVIDIA_API_KEY` | NVIDIA NIM diagnosis/report text and optional NIM embeddings | No |
-| `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` + `LANGFUSE_HOST` | Remote Langfuse traces | No |
-| `SLACK_WEBHOOK_URL` | Posting reports to a real Slack channel | No |
-| `GITHUB_TOKEN` | Future read-only GitHub adapter; current demo uses seeded commits | No |
+```bash
+python3 dashboard_server.py
+```
 
-The project loads `.env` automatically. Never commit real keys or share them in screenshots or the demo video.
+Then open [http://127.0.0.1:8765](http://127.0.0.1:8765).
 
-The expected evaluation is `cases: 7`, `root_cause_correct: 7`, `routing_correct: 7`, and `unsafe_auto_deploys: 0`.
+Run the tests and evaluation:
 
-## Real MCP server
+```bash
+python3 -m pytest -q
+PYTHONPATH=. python3 eval/run_eval.py
+```
 
-Start the stdio MCP server with:
+The current seeded evaluation reports:
+
+```text
+7/7 root causes correct
+7/7 routing decisions correct
+0 unsafe auto-deploys
+```
+
+## Optional environment variables
+
+Copy `.env.example` to `.env`. You can leave everything blank for the local demo.
+
+| Variable | Purpose |
+|---|---|
+| `NVIDIA_API_KEY` | Enables NVIDIA NIM-generated explanations and reports. |
+| `NVIDIA_MODEL` | Selects the NIM chat model. |
+| `NVIDIA_EMBEDDING_MODEL` | Selects the separate NIM embedding model used for retrieval. |
+| `LANGFUSE_PUBLIC_KEY` | Langfuse public key. |
+| `LANGFUSE_SECRET_KEY` | Langfuse secret key. |
+| `LANGFUSE_HOST` | Langfuse host, normally `https://cloud.langfuse.com`. |
+| `SLACK_WEBHOOK_URL` | Sends formatted incident reports to Slack. |
+
+Do not commit `.env` or paste any of these values into screenshots or public issues.
+
+## FastMCP server
+
+The project also includes a standalone FastMCP server:
 
 ```bash
 PYTHONPATH=. python3 tools/mcp_server.py
 ```
 
-It exposes `fetch_logs`, `list_recent_commits`, `get_commit_diff`, `sandbox_run_tests`, `deploy_to_sandbox`, `post_slack_report`, and `escalate_to_oncall`. The graph uses the same FastMCP-decorated tool boundary in-process for the deterministic local demo; the server entrypoint is available for an external MCP client and is not a fake no-op when FastMCP is installed.
-
-## NVIDIA NIM and fallback
-
-Set `NVIDIA_API_KEY` in `.env` to enable calls to `https://integrate.api.nvidia.com/v1/chat/completions`. The model writes the grounded diagnosis explanation and natural-language report only. The numeric safety critic and LangGraph route remain deterministic. If the key is unset or the endpoint fails, the agent records `llm_provider: offline-fallback` and uses deterministic templates.
-
-## Chroma grounding
-
-`rag/ingest.py` creates a persistent Chroma collection named `incident-postmortems` with cosine similarity and eight postmortem documents. Embeddings prefer NVIDIA NIM when `NVIDIA_API_KEY` is configured, then a local `sentence-transformers` model, then a deterministic hash-vector emergency fallback for a fully offline run. Every diagnosis cites retrieved postmortem IDs and the suspect commit SHA.
-
-## Langfuse and local observability
-
-When `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` are configured, each graph node emits a Langfuse trace/span. Without credentials, `agent/observability.py` uses an offline fallback and the existing structured JSON trace remains available under `logs/`. No Langfuse cloud credentials can be provisioned from this repository; the README documents the required setup rather than claiming a remote trace exists without keys.
-
-The graph can be inspected programmatically:
-
-```python
-from agent.graph import build_graph
-compiled = build_graph()
-print(compiled.get_graph().draw_mermaid())
-```
-
-## Security boundary
-
-No production credentials are read. Tool outputs and logs are treated as untrusted evidence. Secrets belong in environment variables and `.env` is not committed. The sandbox deployment function has no production target parameter and cannot write outside the isolated demo log.
-
-## Submission package
-
-The PDF's toolkit entries are alternatives, not a requirement to install every listed provider. This build uses **NVIDIA NIM + LangGraph + FastMCP + Chroma**, with deterministic local fallbacks. See [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md) for a requirement-by-requirement mapping and the remaining human submission steps. The three-minute recording plan is in [`DEMO_SCRIPT.md`](DEMO_SCRIPT.md), and the editable architecture diagram is [`docs/architecture.mmd`](docs/architecture.mmd).
-
-For a judge-facing interface, run `PYTHONPATH=. python3 dashboard_server.py` and open `http://127.0.0.1:8765`. The dashboard is a thin presentation layer over the same agent and lets judges trigger both the safe sandbox path and the escalation path without changing the project idea or safety logic. See [`DASHBOARD.md`](DASHBOARD.md).
-
-For the exact explanation of how LangGraph, LangChain, FastMCP, Chroma, and Langfuse participate, see [`STACK_REFERENCE.md`](STACK_REFERENCE.md).
-
-For copy-paste installation, `.env` setup, optional API-key creation, dashboard launch, MCP server launch, tests, and evaluation, see [`SETUP_GUIDE.md`](SETUP_GUIDE.md).
-
-## Layout
+It exposes these tools:
 
 ```text
-agent/              StateGraph, risk scoring, NIM provider, Langfuse adapter
-agent/risk.py       Diff/path-based blast-radius scoring
+fetch_logs
+list_recent_commits
+get_commit_diff
+sandbox_run_tests
+deploy_to_sandbox
+post_slack_report
+escalate_to_oncall
+```
+
+The dashboard uses the same tool functions in-process for the local demo. The standalone server is available for an external MCP client.
+
+## Repository layout
+
+```text
+agent/              LangGraph workflow, risk scoring, NIM, and Langfuse adapter
+agent/risk.py       Diff- and path-based blast-radius scoring
 tools/              FastMCP tools and server entrypoint
 rag/                Chroma ingestion, retrieval, and postmortems
-eval/               Honest seven-case gold set and results
-sandbox_repo/       Seeded application
-tests/              Regression and risk-decoupling tests
-logs/               Local traces and sandbox deployments
+eval/               Seven-case evaluation set and results
+sandbox_repo/       Seeded application used by the demo
+ dashboard/         Judge-facing dashboard
+ tests/              Regression and safety tests
+logs/               Local traces and sandbox deployment records
+docs/               Architecture diagram source
 ```
+
+## Important limitation
+
+This is a carefully controlled demonstration. The alerts, logs, commits, postmortems, tests, Slack fallback, and deployment adapter are seeded or local so that the full flow can be reproduced safely. The orchestration, retrieval, tool boundaries, tracing hooks, and safety gate are implemented components, but the project intentionally has no production credentials and cannot deploy to production.
+
+That boundary is part of the design—not a missing feature.
+
+## More project material
+
+- [Setup guide](SETUP_GUIDE.md)
+- [Stack reference](STACK_REFERENCE.md)
+- [Dashboard guide](DASHBOARD.md)
+- [Three-minute demo script](DEMO_SCRIPT.md)
+- [Hackathon submission checklist](SUBMISSION_CHECKLIST.md)
+- [Architecture diagram](docs/architecture.mmd)
+- [Public GitHub repository](https://github.com/Ru0k3/devops-agent)
