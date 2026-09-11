@@ -115,7 +115,7 @@ def reporter(state):
 
 
 def build_payload(state):
-    return {"incident": state["alert"].get("id"), "service": state["service"], "what_broke": state["failure_signature"], "why": state["diagnosis"], "confidence": state["safety"].get("confidence"), "outcome": state["route"], "patch": state["patch"], "deployment": state.get("deployment", {"deployed": False})}
+    return {"incident": state["alert"].get("id"), "service": state["service"], "what_broke": state["failure_signature"], "why": state["diagnosis"], "confidence": state["safety"].get("confidence"), "safety": state["safety"], "test_result": state["test_result"], "outcome": state["route"], "patch": state["patch"], "deployment": state.get("deployment", {"deployed": False})}
 
 
 def fallback_report(state):

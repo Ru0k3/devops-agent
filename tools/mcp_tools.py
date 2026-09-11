@@ -44,10 +44,59 @@ def deploy_to_sandbox(patch: dict[str, Any]) -> dict[str, Any]:
 @mcp.tool
 def post_slack_report(payload: dict[str, Any]) -> dict[str, Any]:
     webhook = os.getenv("SLACK_WEBHOOK_URL")
-    if not webhook: return {"posted": False, "mode": "local-demo", "payload": payload}
+    message = format_slack_payload(payload)
+    if not webhook: return {"posted": False, "mode": "local-demo", "payload": message}
     import urllib.request
-    request = urllib.request.Request(webhook, data=json.dumps({"text": json.dumps(payload)}).encode(), headers={"Content-Type": "application/json"})
+    request = urllib.request.Request(webhook, data=json.dumps(message).encode(), headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(request, timeout=10) as response: return {"posted": response.status < 300, "status": response.status}
+
+
+def format_slack_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Turn the internal incident payload into a concise, judge-readable Slack message."""
+    incident = payload.get("incident", "unknown")
+    service = payload.get("service", "unknown")
+    outcome = str(payload.get("outcome", "unknown")).upper()
+    confidence = payload.get("confidence", "n/a")
+    confidence_text = f"{float(confidence) * 100:.0f}%" if isinstance(confidence, (int, float)) else str(confidence)
+    what = payload.get("what_broke", {}) or {}
+    why = payload.get("why", {}) or {}
+    patch = payload.get("patch", {}) or {}
+    deployment = payload.get("deployment", {}) or {}
+    deployed = bool(deployment.get("deployed"))
+    tests = "PASS" if payload.get("test_result", {}).get("passed", True) else "FAIL"
+    risk = "FLAGGED" if payload.get("safety", {}).get("risk_flag") else "CLEAR"
+    report = payload.get("natural_language_report") or payload.get("report") or "No narrative report available."
+    citations = ", ".join(why.get("citations", [])) or "none"
+    status_emoji = ":white_check_mark:" if outcome == "AUTO-DEPLOY" else ":warning:"
+    outcome_text = "DEPLOYED TO ISOLATED SANDBOX" if deployed else "BLOCKED — ESCALATED TO ON-CALL"
+    summary = (
+        f"*Incident:* `{incident}`  •  *Service:* `{service}`\n"
+        f"*Outcome:* {status_emoji} *{outcome}*\n"
+        f"*Confidence:* `{confidence_text}`  •  *Tests:* `{tests}`  •  *Blast radius:* `{risk}`\n"
+        f"*Deployment:* `{outcome_text}`"
+    )
+    evidence = {
+        "exception": what.get("exception"),
+        "endpoint": what.get("endpoint"),
+        "stack": what.get("stack"),
+        "root_cause": why.get("root_cause"),
+        "commit": why.get("commit_sha"),
+        "citations": citations,
+        "patch_path": patch.get("path"),
+        "production_touched": deployment.get("production_touched", False),
+    }
+    return {
+        "text": f"SentinelOps incident {incident}: {outcome}",
+        "blocks": [
+            {"type": "header", "text": {"type": "plain_text", "text": f"SentinelOps · {outcome}"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": summary}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*What broke*\n`{what.get('exception', 'unknown')}`\n`{what.get('stack', 'unknown')}`"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Root cause*\n{why.get('root_cause', 'unknown')} · commit `{why.get('commit_sha', 'unknown')}`\n*Evidence:* `{citations}`"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Report*\n{report}"}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"production_touched: `{deployment.get('production_touched', False)}` · isolated sandbox: `{deployed}`"}]},
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Full evidence*\n```{json.dumps(evidence, indent=2)}```"}},
+        ],
+    }
 
 @mcp.tool
 def escalate_to_oncall(context: dict[str, Any]) -> dict[str, Any]:
